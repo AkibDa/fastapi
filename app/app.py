@@ -15,13 +15,18 @@ text_posts = {
     10: {"title": "Post 10", "content": "This is the content of post 10."},
 }
 
-@app.get("/post")
-def get_post():
+@app.get("/posts")
+def get_post(limit: int = None):
+  if limit is not None and 1 > limit > len(text_posts):
+    raise HTTPException(status_code=400, detail="Invalid limit value")
+  if limit:
+    return dict(list(text_posts.items())[:limit])
   return text_posts
 
-@app.get("/post/{post_id}")
+@app.get("/posts/{post_id}")
 def get_post_by_id(post_id: int):
   if post_id not in text_posts:
     raise HTTPException(status_code=404, detail="Post not found")
 
   return text_posts.get(post_id)
+
