@@ -17,7 +17,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 @app.post("/upload")
-async def upload(file: UploadFile = File(...), caption: str = Form(""), session: AsyncSession = Depends(get_async_session) ):
+async def upload(file: UploadFile = File(...), caption: str = Form(""), session: AsyncSession = Depends(get_async_session)):
   temp_file_path = None
 
   try:
@@ -71,3 +71,25 @@ async def feed(session: AsyncSession = Depends(get_async_session) ):
           }
         )
     return {"posts": posts_data}
+
+@app.delete("/post/{post_id}")
+async def delete_post(post_id: str, session: AsyncSession = Depends(get_async_session)):
+    try:
+      post_uuid = uuid.UUID(post_id)
+
+      result = await session.execute(select(Post).where(Post.id == post_uuid))
+      post = result.scalars().first()
+
+      if not post:
+          return {"error": "Post not found"}
+
+      await session.delete(post)
+      await session.commit()
+
+      return {"message": "Post deleted successfully"}
+
+    except ValueError:
+      return {"error": "Invalid post ID format"}
+
+    except Exception as e:
+      return {"error": str(e)}
