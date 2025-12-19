@@ -1,5 +1,5 @@
 from fastapi import FastAPI, File, UploadFile, Depends, Form
-from app.db import Post, create_db_and_tables, get_async_session
+from app.db import Post, create_db_and_tables, get_async_session, User
 from sqlalchemy.ext.asyncio import AsyncSession
 from contextlib import asynccontextmanager
 from sqlalchemy import select
@@ -35,7 +35,7 @@ app.include_router(
 )
 
 @app.post("/upload")
-async def upload(file: UploadFile = File(...), caption: str = Form(""), session: AsyncSession = Depends(get_async_session)):
+async def upload(file: UploadFile = File(...), caption: str = Form(""), user: User = Depends(current_active_user),session: AsyncSession = Depends(get_async_session)):
   temp_file_path = None
 
   try:
@@ -53,6 +53,7 @@ async def upload(file: UploadFile = File(...), caption: str = Form(""), session:
       raise Exception("Image upload failed: No URL returned")
 
     post = Post(
+        user_id=user.id,
         caption=caption,
         image_url=upload_result.url,
         file_type="video" if file.content_type.startswith("video/") else "image",
@@ -70,28 +71,35 @@ async def upload(file: UploadFile = File(...), caption: str = Form(""), session:
     file.file.close()
 
 @app.get("/feed")
-async def feed(session: AsyncSession = Depends(get_async_session) ):
+async def feed(session: AsyncSession = Depends(get_async_session), user: User = Depends(current_active_user)):
     result = await session.execute(
         select(Post).order_by(Post.created_at.desc())
     )
     posts = [row[0] for row in result.all()]
+
+    result = await session.execute(select(User))
+    users = [row[0] for row in result.all()]
+    user_dict = {u.id: u for u in users}
 
     posts_data = []
     for post in posts:
         posts_data.append(
           {
               "id": str(post.id),
+              "user_id": str(post.user_id),
               "caption": post.caption,
               "image_url": post.image_url,
               "file_type": post.file_type,
               "file_name": post.file_name,
               "created_at": post.created_at.isoformat(),
+              "is_owner": post.user_id == user.id,
+              "email": user_dict[post.user_id].email if post.user_id in user_dict else "Unknown",
           }
         )
     return {"posts": posts_data}
 
 @app.delete("/post/{post_id}")
-async def delete_post(post_id: str, session: AsyncSession = Depends(get_async_session)):
+async def delete_post(post_id: str, session: AsyncSession = Depends(get_async_session), user: User = Depends(current_active_user)):
     try:
       post_uuid = uuid.UUID(post_id)
 
@@ -100,6 +108,9 @@ async def delete_post(post_id: str, session: AsyncSession = Depends(get_async_se
 
       if not post:
           return {"error": "Post not found"}
+
+      if post.user_id != user.id:
+          return {"error": "You do not have permission to delete this post"}
 
       await session.delete(post)
       await session.commit()
